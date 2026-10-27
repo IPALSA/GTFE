@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GIF 용량 줄이기 · 크롭</title>
+<style>
+:root{color-scheme:light dark;--bg:#fafaf8;--fg:#1c1c1a;--mut:#6b6b66;--card:#fff;--bd:#dcdcd5;--ac:#3b5bdb;--acfg:#fff;--ok:#2b8a3e;--bad:#c92a2a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#17171a;--fg:#ececea;--mut:#9a9a94;--card:#222226;--bd:#3a3a40;--ac:#8da2ff;--acfg:#10131f;--ok:#69db7c;--bad:#ff8787}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#17171a;--fg:#ececea;--mut:#9a9a94;--card:#222226;--bd:#3a3a40;--ac:#8da2ff;--acfg:#10131f;--ok:#69db7c;--bad:#ff8787}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:20px;margin:0 0 4px}
+p.s{margin:0 0 16px;color:var(--mut);font-size:13px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px}
+.drop{border:2px dashed var(--bd);text-align:center;padding:28px 12px;cursor:pointer;color:var(--mut)}
+.drop.on{border-color:var(--ac);color:var(--fg)}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:10px}
+label{font-size:13px;color:var(--mut);display:flex;align-items:center;gap:6px}
+select,input[type=number]{background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:6px 8px;font:inherit;width:auto}
+input[type=number]{width:72px}
+button{background:var(--ac);color:var(--acfg);border:0;border-radius:10px;padding:10px 18px;font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+a.dl{display:inline-block;background:var(--ac);color:var(--acfg);border-radius:10px;padding:10px 18px;font-weight:600;text-decoration:none}
+.stage{overflow-x:auto}
+canvas{max-width:100%;touch-action:none;display:block;margin:0 auto;border-radius:6px}
+.res img{display:block;margin:0 auto 10px;max-width:100%;border-radius:6px;background:repeating-conic-gradient(var(--bd) 0 25%,transparent 0 50%) 0 0/16px 16px}
+.info{font-size:13px;color:var(--mut)}
+.ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
+[hidden]{display:none!important}
+.sec{background:transparent;color:var(--fg);border:1px solid var(--bd);padding:6px 12px;font-weight:500}
+.sw{display:inline-block;width:22px;height:22px;border-radius:6px;border:1px solid var(--bd)}
+canvas{background:repeating-conic-gradient(var(--bd) 0 25%,transparent 0 50%) 0 0/16px 16px}
+</style>
+</head>
+<body>
+<main>
+<h1>GIF 용량 줄이기 · 크롭</h1>
+<p class="s">60KB 이하 · 최대 60프레임 · 해상도는 최대한 유지하고 색상·프레임 차이부터 최적화합니다. 파일은 서버로 전송되지 않고 브라우저에서만 처리됩니다.</p>
+
+<label class="card drop" id="drop" style="display:block;font-size:15px">GIF 파일을 끌어다 놓거나 눌러서 선택<input id="file" type="file" accept="image/gif,.gif" hidden></label>
+
+<div class="card" id="editor" hidden>
+  <div class="row">
+    <label>크롭 비율
+      <select id="ratio">
+        <option value="1" selected>1:1</option><option value="1.3333333">4:3</option><option value="0.75">3:4</option>
+        <option value="1.7777778">16:9</option><option value="0.5625">9:16</option><option value="1.5">3:2</option><option value="0.6666667">2:3</option><option value="0">자유</option>
+      </select>
+    </label>
+    <label>목표 용량 <input id="kb" type="number" value="60" min="10" max="2000"> KB</label>
+    <label>최소 크기 <input id="minS" type="number" value="50" min="20" max="100"> %</label>
+  </div>
+  <div class="row">
+    <label><input type="checkbox" id="bg"> 배경 지우기</label>
+    <span id="bgopts" class="row" style="margin:0" hidden>
+      <button type="button" id="pick" class="sec">배경색 선택</button><span class="sw" id="sw"></span>
+      <label>허용 오차 <input type="range" id="tol" min="0" max="100" value="24"></label>
+      <label><input type="checkbox" id="flood" checked> 바깥과 이어진 부분만</label>
+      <label>가장자리 정리 <input type="number" id="erode" value="0" min="0" max="3"> px</label>
+    </span>
+  </div>
+  <div class="stage"><canvas id="cv"></canvas></div>
+  <p class="info" id="meta" style="margin:8px 0 12px"></p>
+  <button id="go">크롭 &amp; 압축하기</button>
+</div>
+
+<div class="card res" id="res" hidden>
+  <img id="out" alt="결과 GIF">
+  <p class="info" id="stat"></p>
+  <a class="dl" id="dl" download="compressed.gif">다운로드</a>
+  <p class="info" style="margin-top:8px">다운로드가 안 되면 이미지를 길게 누르거나 우클릭해서 저장하세요.</p>
+</div>
+</main>
+
+<script>
+/* ===== 외부 라이브러리 없는 GIF 디코더 / 양자화 / 인코더 ===== */
+function lzwDecode(mc,data,npix){
+  const clear=1<<mc,eoi=clear+1;let size=mc+1,mask=(1<<size)-1,next=eoi+1;
+  const prefix=new Uint16Array(4096),suffix=new Uint8Array(4096),stack=new Uint8Array(4097);
+  const out=new Uint8Array(npix);let op=0,bits=0,acc=0,pos=0,old=-1,first=0;
+  for(let i=0;i<clear;i++)suffix[i]=i;
+  while(op<npix){
+    while(bits<size&&pos<data.length){acc|=data[pos++]<<bits;bits+=8}
+    if(bits<size)break;
+    let code=acc&mask;acc>>=size;bits-=size;
+    if(code===clear){size=mc+1;mask=(1<<size)-1;next=eoi+1;old=-1;continue}
+    if(code===eoi)break;
+    if(old===-1){out[op++]=suffix[code];old=code;first=code;continue}
+    const inc=code;let sp=0;
+    if(code>=next){stack[sp++]=first;code=old}
+    while(code>=clear){stack[sp++]=suffix[code];code=prefix[code]}
+    first=suffix[code];stack[sp++]=first;
+    if(next<4096){prefix[next]=old;suffix[next]=first;next++;if((next&mask)===0&&next<4096){size++;mask=(1<<size)-1}}
+    old=inc;
+    while(sp>0&&op<npix)out[op++]=stack[--sp];
+  }
+  return out;
+}
+function decodeGIF(b){
+  if(b[0]!==71||b[1]!==73||b[2]!==70)throw new Error('GIF 파일이 아닙니다');
+  let p=6;const W=b[p]|b[p+1]<<8,H=b[p+2]|b[p+3]<<8,fl=b[p+4];p+=7;
+  let gct=null;if(fl&128){const n=3<<((fl&7)+1);gct=b.subarray(p,p+n);p+=n}
+  const frames=[];let g={delay:100,disp:0,ti:-1};
+  while(p<b.length){
+    const t=b[p++];
+    if(t===0x3B)break;
+    if(t===0x21){
+      const l=b[p++];
+      if(l===0xF9){const f=b[p+1];g={disp:(f>>2)&7,ti:(f&1)?b[p+4]:-1,delay:(b[p+2]|b[p+3]<<8)*10}}
+      while(p<b.length&&b[p]){p+=b[p]+1}p++;continue;
+    }
+    if(t!==0x2C)continue;
+    const L=b[p]|b[p+1]<<8,T=b[p+2]|b[p+3]<<8,w=b[p+4]|b[p+5]<<8,h=b[p+6]|b[p+7]<<8,f=b[p+8];p+=9;
+    let ct=gct;if(f&128){const n=3<<((f&7)+1);ct=b.subarray(p,p+n);p+=n}
+    const mc=b[p++],chunks=[];let tot=0;
+    while(p<b.length&&b[p]){const n=b[p];chunks.push(b.subarray(p+1,p+1+n));tot+=n;p+=n+1}p++;
+    const d=new Uint8Array(tot);let o=0;for(const c of chunks){d.set(c,o);o+=c.length}
+    let ix=lzwDecode(mc,d,w*h);
+    if(f&64){const o2=new Uint8Array(w*h);let r=0;for(const[s,st]of[[0,8],[4,8],[2,4],[1,2]])for(let y=s;y<h;y+=st,r++)o2.set(ix.subarray(r*w,r*w+w),y*w);ix=o2}
+    const rgba=new Uint8ClampedArray(w*h*4);
+    for(let i=0;i<w*h;i++){const c=ix[i];if(c===g.ti||!ct||c*3+2>=ct.length)continue;rgba[i*4]=ct[c*3];rgba[i*4+1]=ct[c*3+1];rgba[i*4+2]=ct[c*3+2];rgba[i*4+3]=255}
+    frames.push({left:L,top:T,width:w,height:h,delay:g.delay,disp:g.disp,rgba});
+    g={delay:100,disp:0,ti:-1};
+  }
+  if(!frames.length)throw new Error('프레임이 없습니다');
+  return{width:W,height:H,frames};
+}
+/* 메디안 컷 양자화 (RGB565 히스토그램 기반) */
+function quantize(px,K){
+  const hist=new Uint32Array(65536);
+  for(let i=0;i<px.length;i+=4)hist[(px[i]>>3)<<11|(px[i+1]>>2)<<5|px[i+2]>>3]++;
+  const ent=[];for(let k=0;k<65536;k++)if(hist[k])ent.push(k);
+  const ch=(k,a)=>a===0?((k>>11)<<3)|4:a===1?(((k>>5)&63)<<2)|2:((k&31)<<3)|4;
+  let boxes=[ent];
+  while(boxes.length<K){
+    let bi=-1,bs=0,ba=0;
+    boxes.forEach((b,i)=>{
+      if(b.length<2)return;let pop=0;for(const k of b)pop+=hist[k];
+      for(let a=0;a<3;a++){let mn=255,mx=0;for(const k of b){const v=ch(k,a);if(v<mn)mn=v;if(v>mx)mx=v}
+        const s=(mx-mn)*Math.sqrt(pop);if(s>bs){bs=s;bi=i;ba=a}}
+    });
+    if(bi<0)break;
+    const b=boxes[bi].slice().sort((x,y)=>ch(x,ba)-ch(y,ba));
+    let pop=0;for(const k of b)pop+=hist[k];
+    let cum=0,cut=1;for(let i=0;i<b.length-1;i++){cum+=hist[b[i]];cut=i+1;if(cum>=pop/2)break}
+    boxes.splice(bi,1,b.slice(0,cut),b.slice(cut));
+  }
+  return boxes.map(b=>{let r=0,g=0,bl=0,n=0;for(const k of b){const c=hist[k];r+=ch(k,0)*c;g+=ch(k,1)*c;bl+=ch(k,2)*c;n+=c}
+    return[Math.round(r/n),Math.round(g/n),Math.round(bl/n)]});
+}
+function applyPalette(px,pal){
+  const n=px.length>>2,out=new Uint8Array(n),cache=new Int16Array(65536).fill(-1);
+  for(let i=0;i<n;i++){
+    const j=i*4,k=(px[j]>>3)<<11|(px[j+1]>>2)<<5|px[j+2]>>3;let c=cache[k];
+    if(c<0){const r=px[j],g=px[j+1],b=px[j+2];let best=1e9;c=0;
+      for(let q=0;q<pal.length;q++){const d=(pal[q][0]-r)**2+(pal[q][1]-g)**2+(pal[q][2]-b)**2;if(d<best){best=d;c=q}}cache[k]=c}
+    out[i]=c;
+  }
+  return out;
+}
+const _lzwTab=new Uint16Array(1<<20);
+function lzwEncode(idx,mc,out){
+  const clear=1<<mc,eoi=clear+1,tab=_lzwTab;tab.fill(0);
+  let size=mc+1,next=eoi+1,acc=0,nb=0;const blk=[];
+  const emit=c=>{acc|=c<<nb;nb+=size;while(nb>=8){blk.push(acc&255);acc>>=8;nb-=8}};
+  out.push(mc);emit(clear);let pre=idx[0];
+  for(let i=1;i<idx.length;i++){
+    const c=idx[i],key=pre<<8|c,v=tab[key];
+    if(v){pre=v;continue}
+    emit(pre);
+    if(next===4096){emit(clear);tab.fill(0);size=mc+1;next=eoi+1}
+    else{if(next>=(1<<size))size++;tab[key]=next++}
+    pre=c;
+  }
+  emit(pre);emit(eoi);if(nb>0)blk.push(acc&255);
+  for(let i=0;i<blk.length;i+=255){const n=Math.min(255,blk.length-i);out.push(n);for(let j=0;j<n;j++)out.push(blk[i+j])}
+  out.push(0);
+}
+function encodeGIF(w,h,pal,frames){
+  const out=[],u16=v=>out.push(v&255,(v>>8)&255);
+  let bits=1;while((1<<bits)<pal.length)bits++;
+  out.push(71,73,70,56,57,97);u16(w);u16(h);out.push(0x80|0x70|(bits-1),0,0);
+  for(let i=0;i<(1<<bits);i++){const c=pal[i]||[0,0,0];out.push(c[0],c[1],c[2])}
+  out.push(0x21,0xFF,11,78,69,84,83,67,65,80,69,50,46,48,3,1,0,0,0);
+  for(const f of frames){
+    out.push(0x21,0xF9,4,(f.dispose<<2)|1);u16(Math.round(f.delay/10));out.push(f.t,0);
+    out.push(0x2C);u16(f.x);u16(f.y);u16(f.w);u16(f.h);out.push(0);
+    lzwEncode(f.idx,Math.max(2,bits),out);
+  }
+  out.push(0x3B);return Uint8Array.from(out);
+}
+/* RGBA 프레임들 → 최적화된 GIF (전역 팔레트 + 프레임 간 차이 + 투명 유지) */
+async function buildGif(data,w,h,dl,cfg){
+  const pick=[],np=Math.min(6,data.length);
+  for(let i=0;i<np;i++)pick.push(data[Math.floor(i*data.length/np)]);
+  const sample=new Uint8Array(pick.reduce((a,d)=>a+d.length,0));let o=0;
+  for(const d of pick)for(let i=0;i<d.length;i+=4)if(d[i+3]>=128){sample[o++]=d[i];sample[o++]=d[i+1];sample[o++]=d[i+2];sample[o++]=255}
+  const pal=o?quantize(sample.subarray(0,o),cfg.colors-1):[[0,0,0]],T=pal.length,full=pal.concat([[0,0,0]]);
+  const N=data.length,n=w*h,outs=[];let prev=null,hasT=false;
+  for(let i=0;i<N;i++){
+    const d=data[i],idx=applyPalette(d,pal);
+    for(let p=0;p<n;p++)if(d[p*4+3]<128){idx[p]=T;hasT=true}
+    if(!prev){prev=Uint8Array.from(idx);outs.push({o:idx,c:false});continue}
+    let clear=false;
+    for(let p=0;p<n;p++)if(idx[p]===T&&prev[p]!==T){clear=true;break}
+    if(clear){prev=Uint8Array.from(idx);outs.push({o:idx,c:true});continue}
+    const out=new Uint8Array(n);
+    for(let p=0;p<n;p++){
+      const a=idx[p],b=prev[p];
+      if(a===b){out[p]=T;continue}
+      if(b!==T){const A=full[a],B=full[b];if(Math.abs(A[0]-B[0])+Math.abs(A[1]-B[1])+Math.abs(A[2]-B[2])<=cfg.tol){out[p]=T;continue}}
+      out[p]=a;prev[p]=a;
+    }
+    outs.push({o:out,c:false});
+    if(i%8===7)await tick();
+  }
+  const anyClear=outs.some(x=>x.c),fr=[];
+  for(let i=0;i<N;i++){
+    let X=0,Y=0,fw=w,fh=h,px=outs[i].o;
+    if(!anyClear&&i>0){
+      let x0=w,y0=h,x1=-1,y1=-1;
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(px[y*w+x]!==T){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
+      if(x1<0){X=0;Y=0;fw=1;fh=1;px=Uint8Array.of(T)}
+      else{X=x0;Y=y0;fw=x1-x0+1;fh=y1-y0+1;const s=new Uint8Array(fw*fh);for(let y=0;y<fh;y++)s.set(px.subarray((y+Y)*w+X,(y+Y)*w+X+fw),y*fw);px=s}
+    }
+    fr.push({x:X,y:Y,w:fw,h:fh,idx:px,delay:Math.max(20,dl[i]),dispose:(i+1<N&&outs[i+1].c)?2:1,t:T});
+  }
+  return{bytes:encodeGIF(w,h,full,fr),w,h,n:N,cfg,hasT};
+}
+</script>
+<script>
+const $=s=>document.querySelector(s), MAXF=60;
+const cv=$('#cv'), cx=cv.getContext('2d');
+let frames=[], delays=[], W=0, H=0, k=1, ratio=1, crop={x:0,y:0,w:1,h:1}, drag=null, url=null, pv=null, bgKey=null, picking=false, srcFrames=null;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const tick=()=>new Promise(r=>setTimeout(r));
+
+/* ---------- 파일 로드 ---------- */
+const drop=$('#drop'), file=$('#file');
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('on')};
+drop.ondragleave=()=>drop.classList.remove('on');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('on');if(e.dataTransfer.files[0])load(e.dataTransfer.files[0])};
+file.onchange=()=>file.files[0]&&load(file.files[0]);
+
+async function load(f){
+  drop.firstChild.nodeValue='불러오는 중… '+f.name;
+  try{
+    const gif=decodeGIF(new Uint8Array(await f.arrayBuffer())),fr=gif.frames.map(x=>({patch:x.rgba,dims:{left:x.left,top:x.top,width:x.width,height:x.height},disposalType:x.disp,delay:x.delay}));
+    W=gif.width;H=gif.height;
+    const n=fr.length, keepN=Math.min(n,MAXF);
+    const keep=Array.from({length:keepN},(_,i)=>Math.floor(i*n/keepN));
+    const km=new Map(keep.map((v,j)=>[v,j]));
+    delays=keep.map((s,j)=>{let d=0;const e=j+1<keepN?keep[j+1]:n;for(let i=s;i<e;i++){let x=fr[i].delay||0;d+=x<=10?100:x}return d});
+    frames=[];
+    const mc=document.createElement('canvas');mc.width=W;mc.height=H;const m=mc.getContext('2d',{willReadFrequently:true});
+    const tc=document.createElement('canvas'),t=tc.getContext('2d');
+    for(let i=0;i<n;i++){
+      const p=fr[i],d=p.dims;let save=null;
+      if(p.disposalType===3)save=m.getImageData(0,0,W,H);
+      tc.width=d.width;tc.height=d.height;t.putImageData(new ImageData(p.patch,d.width,d.height),0,0);
+      m.drawImage(tc,d.left,d.top);
+      if(km.has(i)){const c=document.createElement('canvas');c.width=W;c.height=H;c.getContext('2d').drawImage(mc,0,0);frames.push(c)}
+      if(p.disposalType===2)m.clearRect(d.left,d.top,d.width,d.height);
+      else if(save)m.putImageData(save,0,0);
+      if(i%20==19)await tick();
+    }
+    bgKey=null;pv=null;picking=false;$('#bg').checked=false;$('#bgopts').hidden=true;
+    $('#editor').hidden=false;
+    k=Math.min(1,Math.min(600,document.querySelector('main').clientWidth-30)/W);
+    cv.width=Math.round(W*k);cv.height=Math.round(H*k);k=cv.width/W;
+    $('#meta').dataset.base=`원본 ${W}×${H}px · ${n}프레임`+(n>MAXF?` → ${keepN}프레임으로 균등 추출`:'');
+    drop.firstChild.nodeValue='다른 GIF 선택하기';
+    fit(ratio);
+  }catch(err){console.error(err);drop.firstChild.nodeValue='GIF를 읽지 못했습니다: '+(err&&err.message||'')}
+}
+
+/* ---------- 크롭 UI ---------- */
+function fit(r){
+  if(!r){crop={x:0,y:0,w:W,h:H};}
+  else{let w=W,h=w/r;if(h>H){h=H;w=h*r}crop={x:(W-w)/2,y:(H-h)/2,w,h}}
+  draw();
+}
+$('#ratio').onchange=e=>{ratio=+e.target.value;fit(ratio)};
+function draw(){
+  cx.clearRect(0,0,cv.width,cv.height);cx.drawImage(pv||frames[0],0,0,cv.width,cv.height);
+  const c=crop,x=c.x*k,y=c.y*k,w=c.w*k,h=c.h*k;
+  cx.fillStyle='rgba(0,0,0,.55)';cx.beginPath();cx.rect(0,0,cv.width,cv.height);cx.rect(x,y,w,h);cx.fill('evenodd');
+  cx.strokeStyle='#fff';cx.lineWidth=2;cx.strokeRect(x,y,w,h);
+  cx.fillStyle='#fff';cx.strokeStyle='#333';cx.lineWidth=1;
+  [[x,y],[x+w,y],[x,y+h],[x+w,y+h]].forEach(p=>{cx.fillRect(p[0]-6,p[1]-6,12,12);cx.strokeRect(p[0]-6,p[1]-6,12,12)});
+  $('#meta').textContent=$('#meta').dataset.base+` · 크롭 ${Math.round(c.w)}×${Math.round(c.h)}px (모서리를 끌어 크기, 안쪽을 끌어 이동)`;
+}
+const pt=e=>{const b=cv.getBoundingClientRect();return[(e.clientX-b.left)/b.width*W,(e.clientY-b.top)/b.height*H]};
+cv.onpointerdown=e=>{
+  if(picking){const[qx,qy]=pt(e);const d=frames[0].getContext('2d').getImageData(clamp(Math.floor(qx),0,W-1),clamp(Math.floor(qy),0,H-1),1,1).data;bgKey=[d[0],d[1],d[2]];picking=false;$('#pick').textContent='배경색 선택';updSw();updPv();return}
+  const[px,py]=pt(e),c=crop,th=18/k;
+  const cs=[[c.x,c.y],[c.x+c.w,c.y],[c.x,c.y+c.h],[c.x+c.w,c.y+c.h]];let hit=-1;
+  cs.forEach((p,i)=>{if(Math.abs(p[0]-px)<th&&Math.abs(p[1]-py)<th)hit=i});
+  if(hit>=0)drag={t:'r',a:cs[3-hit]};
+  else if(px>=c.x&&px<=c.x+c.w&&py>=c.y&&py<=c.y+c.h)drag={t:'m',ox:px-c.x,oy:py-c.y};
+  else return;
+  cv.setPointerCapture(e.pointerId);
+};
+cv.onpointermove=e=>{
+  if(!drag)return;const[px,py]=pt(e),c=crop;
+  if(drag.t==='m'){c.x=clamp(px-drag.ox,0,W-c.w);c.y=clamp(py-drag.oy,0,H-c.h)}
+  else{
+    const[ax,ay]=drag.a,sx=px>=ax?1:-1,sy=py>=ay?1:-1,mw=sx>0?W-ax:ax,mh=sy>0?H-ay:ay;
+    let w=Math.min(Math.abs(px-ax),mw),h;
+    if(ratio){h=w/ratio;if(h>mh){h=mh;w=h*ratio}}else h=Math.min(Math.abs(py-ay),mh);
+    w=Math.max(w,16);h=Math.max(ratio?w/ratio:h,16);
+    c.w=w;c.h=h;c.x=sx>0?ax:ax-w;c.y=sy>0?ay:ay-h;
+  }
+  draw();
+};
+cv.onpointerup=cv.onpointercancel=()=>{drag=null};
+
+/* ---------- 배경 제거 ---------- */
+function proc(src){
+  const w=src.width,h=src.height,c=document.createElement('canvas');c.width=w;c.height=h;
+  const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(src,0,0);
+  const im=x.getImageData(0,0,w,h),d=im.data,kr=bgKey[0],kg=bgKey[1],kb=bgKey[2],t=+$('#tol').value*3;
+  const m=i=>{const j=i*4;return d[j+3]<128||Math.abs(d[j]-kr)+Math.abs(d[j+1]-kg)+Math.abs(d[j+2]-kb)<=t};
+  if($('#flood').checked){
+    const seen=new Uint8Array(w*h),st=new Int32Array(w*h);let sp=0;
+    const push=i=>{if(!seen[i]&&m(i)){seen[i]=1;st[sp++]=i}};
+    for(let X=0;X<w;X++){push(X);push((h-1)*w+X)}
+    for(let Y=0;Y<h;Y++){push(Y*w);push(Y*w+w-1)}
+    while(sp){const i=st[--sp],X=i%w,Y=(i-X)/w;d[i*4+3]=0;if(X>0)push(i-1);if(X<w-1)push(i+1);if(Y>0)push(i-w);if(Y<h-1)push(i+w)}
+  }else for(let i=0;i<w*h;i++)if(m(i))d[i*4+3]=0;
+  for(let n=+$('#erode').value||0;n>0;n--){
+    const kill=[];
+    for(let Y=0;Y<h;Y++)for(let X=0;X<w;X++){const i=Y*w+X;if(d[i*4+3]<128)continue;
+      if((X>0&&d[(i-1)*4+3]<128)||(X<w-1&&d[(i+1)*4+3]<128)||(Y>0&&d[(i-w)*4+3]<128)||(Y<h-1&&d[(i+w)*4+3]<128))kill.push(i)}
+    kill.forEach(i=>{d[i*4+3]=0});
+  }
+  x.putImageData(im,0,0);return c;
+}
+function updSw(){$('#sw').style.background=bgKey?`rgb(${bgKey})`:'transparent'}
+let pvq=false;
+function updPv(){if(pvq)return;pvq=true;requestAnimationFrame(()=>{pvq=false;pv=($('#bg').checked&&bgKey&&frames.length)?proc(frames[0]):null;draw()})}
+$('#bg').onchange=()=>{
+  $('#bgopts').hidden=!$('#bg').checked;
+  if($('#bg').checked&&!bgKey)bgKey=Array.from(frames[0].getContext('2d').getImageData(0,0,1,1).data).slice(0,3);
+  updSw();updPv();
+};
+['tol','flood','erode'].forEach(id=>{$('#'+id).oninput=updPv;$('#'+id).onchange=updPv});
+$('#pick').onclick=()=>{picking=!picking;$('#pick').textContent=picking?'이미지를 눌러 색 선택…':'배경색 선택'};
+
+/* ---------- 인코딩 ---------- */
+async function encode(cfg){
+  const cw=Math.round(crop.w),ch=Math.round(crop.h),cx0=Math.round(crop.x),cy0=Math.round(crop.y);
+  const w=Math.max(8,Math.round(cw*cfg.s)),h=Math.max(8,Math.round(ch*cfg.s));
+  const fl=[],dl=[];
+  for(let i=0;i<frames.length;i+=cfg.step){fl.push((srcFrames||frames)[i]);let d=0;for(let j=i;j<Math.min(i+cfg.step,frames.length);j++)d+=delays[j];dl.push(d)}
+  const rc=document.createElement('canvas');rc.width=w;rc.height=h;
+  const r=rc.getContext('2d',{willReadFrequently:true});r.imageSmoothingQuality='high';
+  const data=[];
+  for(const f of fl){r.clearRect(0,0,w,h);r.drawImage(f,cx0,cy0,cw,ch,0,0,w,h);data.push(r.getImageData(0,0,w,h).data);await tick()}
+  return buildGif(data,w,h,dl,cfg);
+}
+
+$('#go').onclick=async()=>{
+  const btn=$('#go'),L=(+$('#kb').value||60)*1000,minS=clamp(+$('#minS').value||50,20,100)/100;
+  const LV=[[0,256],[6,256],[12,256],[20,192],[30,128],[45,96],[60,64]];
+  let SC=[1,.92,.85,.78,.72,.66,.6,.55,.5,.45,.4,.35,.3,.25].filter(s=>s>=minS-1e-6);if(!SC.length)SC=[1];
+  const cfgs=[];for(const step of[1,2])for(const s of SC)for(const[tol,colors]of LV)cfgs.push({s,tol,colors,step});
+  const cache={};let tries=0;
+  const tryI=async i=>{if(!cache[i]){tries++;btn.textContent=`압축 중… (${tries}번째 시도)`;cache[i]=await encode(cfgs[i])}return cache[i]};
+  btn.disabled=true;
+  try{
+    srcFrames=null;
+    if($('#bg').checked&&bgKey){srcFrames=[];for(let i=0;i<frames.length;i++){btn.textContent=`배경 제거 중… (${i+1}/${frames.length})`;srcFrames.push(proc(frames[i]));await tick()}}
+    let res=await tryI(0),fail=false;
+    if(res.bytes.length>L){
+      const last=await tryI(cfgs.length-1);
+      if(last.bytes.length>L){res=last;fail=true}
+      else{let lo=0,hi=cfgs.length-1;while(hi-lo>1){const m=(lo+hi)>>1;(await tryI(m)).bytes.length<=L?hi=m:lo=m}res=await tryI(hi)}
+    }
+    if(url)URL.revokeObjectURL(url);
+    url=URL.createObjectURL(new Blob([res.bytes],{type:'image/gif'}));
+    $('#out').src=url;$('#dl').href=url;$('#res').hidden=false;
+    const kb=(res.bytes.length/1000).toFixed(1),c=res.cfg;
+    $('#stat').innerHTML=`<span class="${fail?'bad':'ok'}">${kb}KB ${fail?'(목표 초과)':'✓'}</span> · ${res.w}×${res.h}px (${Math.round(c.s*100)}%) · ${res.n}프레임 · 색상 ${c.colors} · 프레임 차이 허용치 ${c.tol}`+(c.step>1?' · 프레임 절반 감소':'')+(res.hasT?' · 투명 배경 유지':'')+(fail?'<br>최소 크기 비율을 낮추거나 크롭 영역을 줄여 보세요.':'');
+    $('#res').scrollIntoView({behavior:'smooth'});
+  }catch(err){console.error(err);alert('압축 중 오류가 발생했습니다.')}
+  btn.disabled=false;btn.textContent='크롭 & 압축하기';
+};
+</script>
+</body>
+</html>
